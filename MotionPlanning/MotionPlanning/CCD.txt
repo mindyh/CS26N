@@ -1,0 +1,312 @@
+/*
+ * File: SierpinskiTriangle.cpp
+ * ----------------------------
+ * Name: Mindy Huang
+ * Section: Manoli Liodakis
+ * This file draws a Sierpinski triangle 
+ * in the center of the screen of the order and 
+ * size the user inputs.
+ */
+
+#include <iostream>
+#include <cmath>
+#include "strlib.h"
+#include <string>
+#include "gevents.h"
+#include "grid.h"
+#include "graphics.h"
+#include "gtypes.h"
+#include "simpio.h"
+using namespace std;
+
+/* Constants */
+#define PI 3.14159265
+
+const int PEG_DIAM = 10;
+const int OBST_DIAM = 40;
+const int ROBOT_LENGTH = 30;
+const int ROBOT_WIDTH = 10;
+const double INIT_THETA = 45;
+const double STEP = .01;
+const double epsilon = 0.0001;  
+
+struct Orientation{
+	GPoint anchor;
+	GPoint joint;
+	GPoint endpt;
+	double theta1;
+	double theta2;
+};
+
+struct XYZ{
+	double x;
+	double y;
+	double z;
+};
+
+/* Function prototypes */
+
+void initialization(Vector<GPoint> & pegs, Vector<GPoint> & obst, GPoint & start, GPoint & goal, GMouseEvent & e);
+void inputPegs(Vector<GPoint> & pegs, GMouseEvent & e);
+void inputObstacles(Vector<GPoint> & obst, GMouseEvent & e);
+void inputStart(GPoint & start, GMouseEvent & e);
+void inputGoal(GPoint & goal, GMouseEvent & e);
+void message(string str);
+GPoint getClick(GMouseEvent & e);
+string vecToString(Vector<GPoint> & pts);
+GPoint drawRobot(GPoint & p, double theta1, double theta2);
+void inverseKinematics(GPoint & click, Vector<GPoint> & pointData, Vector<double> & angleData);
+double dotProduct(GPoint & p1, GPoint & p2);
+double acosd(double x);
+double cosd(double x);
+double sind(double x);
+void crossProduct(double x1, double x2, double x3, double y1, double y2, double y3, XYZ & coord);
+double distance (double x1, double y1, double x2, double y2);
+
+/* Main program */
+
+int main() {
+	initGraphics();
+	Vector<GPoint> pegs;
+	Vector<GPoint> obst;
+	GPoint start;
+	GPoint goal;
+	GMouseEvent e;
+	initialization(pegs, obst, start, goal, e);
+	cout <<"done"<< endl;
+	//Orientation robot;
+	//robot.anchor = endPt1;
+	//robot.endpt = endPt2;
+	//robot.theta1 = INIT_THETA;
+	//robot.theta2 = INIT_THETA;
+
+	
+	GPoint anchor;
+	anchor = start;
+	GPoint joint;
+	joint = drawPolarLine(start, ROBOT_LENGTH, INIT_THETA);
+	GPoint endpt;
+	endpt = drawPolarLine(joint, ROBOT_LENGTH, -INIT_THETA);
+
+	Vector<GPoint> pointData;
+	pointData.add(anchor);
+	pointData.add(joint);
+	pointData.add(endpt);
+
+	Vector<double> angleData;
+	angleData.add(INIT_THETA);
+	angleData.add(-INIT_THETA);
+
+	while(true){
+		GPoint click = getClick(e);
+		inverseKinematics(click, pointData, angleData);
+	}
+
+	return 0;
+} 
+
+void inverseKinematics(GPoint & click, Vector<GPoint> & pointData, Vector<double> & angleData){
+	const int ANCHOR = 0;
+	const int JOINT = 1;
+	const int ENDPT = 2;
+	const int numLinks = 2;
+	double error = distance(pointData[ENDPT].getX(), pointData[ENDPT].getY(), click.getX(), click.getY());
+	while(error > .5){
+		int iteration = numLinks;
+		while (iteration > 0){
+
+			GPoint pe = pointData[ENDPT];
+			GPoint pc = pointData[iteration - 1];
+
+			GPoint a( (pe.getX() - pc.getX())/distance(pe.getX(), pe.getY(), pc.getX(), pc.getY()), (pe.getY() - pc.getY())/distance(pe.getX(), pe.getY(), pc.getX(), pc.getY()));
+			GPoint b( (click.getX() - pc.getX())/distance(click.getX(), click.getY(), pc.getX(), pc.getY()), (click.getY() - pc.getY())/distance(click.getX(), click.getY(), pc.getX(), pc.getY()));
+			double theta = acosd(dotProduct(a, b));
+
+			XYZ direction;
+			crossProduct(a.getX(), a.getY(), 0, b.getX(), b.getY(), 0, direction);
+			if (direction.z < 0) theta *= -1;
+
+			if (theta > 30) theta = 30;
+			else if (theta < -30) theta = -30;
+
+			angleData[iteration - 1] = theta;
+
+			iteration--;
+
+			Grid<double> rMatrix (2,2);
+			for (int i = 0; i < numLinks-1; i++){
+				rMatrix[1][1] = cosd(angleData(i));
+				rMatrix[1][2] = -sind(angleData(i));
+				rMatrix[2][1] = sind(angleData(i));
+				rMatrix[2][2] = cosd(angleData(i));
+
+				GPoint p(pointData[i+1].getX() - pointData[i].getX(), pointData[i+1].getY() - pointData[i].getY());  
+				Grid<double> (2,1) temp;
+				temp[1][1] = rMatrix[1][1] * p.getX() + rMatrix[1][2] * p.getY();
+				temp[2][1] = rMatrix[2][1] * p.getX() + rMatrix[2][2] * p.getY();
+				
+				temp[1][1] += pointData[i].getX();
+				temp[2][1] += pointData[i].getY();
+				
+				pointData[i+1] = GPoint(temp[1][1], temp[2][1]);
+				angleData[i+1] = angleData[i+1] + angleData[i];
+
+				pointData[i+2] = GPoint(pointData[i+1].getX()+1,pointData[i+1].getY()); 
+			}
+
+			rMatrix[1][1] = cosd(angleData(angleData.size()-1));
+			rMatrix[1][2] = -sind(angleData(angleData.size()-1));
+			rMatrix[2][1] = sind(angleData(angleData.size()-1));
+			rMatrix[2][2] = cosd(angleData(angleData.size()-1));
+
+			GPoint p(angleData[i+1].getX() - angleData[i].getX(), angleData[i+1].getY() - angleData[i].getY());  
+			Grid<double> (2,1) temp;
+			temp[1][1] = rMatrix[1][1] * p.getX() + rMatrix[1][2] * p.getY();
+			temp[2][1] = rMatrix[2][1] * p.getX() + rMatrix[2][2] * p.getY();
+
+			temp[1][1] += pointData[pointData.size()-2].getX();
+			temp[2][1] += pointData[pointData.size()-2].getY();	
+				
+			pointData[pointData.size()-1] = GPoint(temp[1][1], temp[2][1]);
+			angleData[pointData.size()-1] = angleData[1] + angleData[0];
+		}
+
+		error = distance(pointData[ENDPT].getX(), pointData[ENDPT].getY(), click.getX(), click.getY());
+		drawRobot(pointData[ANCHOR], angleData[0], angleData[1]);
+	}
+}
+
+			
+
+
+
+//void inverseKinematics(GPoint & click, Orientation & robot){
+//	int numLinks = 2;
+//	double error = distance(robot.endpt, click);
+//	while (error > .5){
+//		int iteration = numLinks;
+//		GPoint pe = robot.endpt;
+//		GPoint pc = robot.joint;
+//
+//		GPoint a( (pe.getX() - pc.getX())/distance(pe,pc), (pe.getY() - pc.getY())/distance(pe,pc));
+//		GPoint b( (pt.getX() - pc.getX())/distance(pt,pc), (pt.getY() - pc.getY())/distance(pt,pc));
+//		theta = acosd(dotProduct(a, b));
+//
+//		XYZ direction;
+//		crossProduct(a.getX(), a.getY(), 0, b.getX(), b.getY(), 0, direction);
+//		if (direction.z < 0) theta *= -1;
+//
+//		if (theta > 30) theta = 30;
+//		else if (theta < -30) theta = -30;
+//
+//		robot.theta2 = theta;
+//
+//
+//
+//		drawRobot
+//
+//
+//
+//	}
+//}
+
+
+double dotProduct(GPoint & p1, GPoint & p2){
+	return (p1.getX() * p2.getY()) + (p1.getY() * p2.getY());
+}
+
+double acosd(double x){
+	return acos(x) * 180 / PI;
+}
+
+double cosd(double x){
+	return cos(x) * 180 / PI;
+}
+
+double sind(double x){
+	return sin(x) * 180 / PI;
+}
+
+void crossProduct(double x1, double x2, double x3, double y1, double y2, double y3, XYZ & coord){
+	coord.x = x2*y3 - x3*y2;
+	coord.y = x3*y1 - x1*y3;
+	coord.z = x1*y2 - x2*y1;
+}
+
+double distance (double x1, double y1, double x2, double y2){
+	return sqrt(pow(x1 - x2 , 2) + pow(y1 - y2, 2));
+}
+
+void initialization(Vector<GPoint> & pegs, Vector<GPoint> & obst, GPoint & start, GPoint & goal, GMouseEvent & e){
+	inputPegs(pegs, e);
+	inputObstacles(obst, e);
+	inputStart(start, e);
+	inputGoal(goal, e);
+	drawRobot(start, INIT_THETA, -INIT_THETA);
+}
+
+GPoint drawRobot(GPoint & p, double theta1, double theta2){
+	setColor("BLACK");
+	GPoint p2 = drawPolarLine(p, ROBOT_LENGTH, theta1);
+	return drawPolarLine(p2, ROBOT_LENGTH, theta2);
+}
+
+void inputPegs(Vector<GPoint> & pegs, GMouseEvent & e){
+	message("Click to set pegs.");
+	GRectangle rect = GRectangle(0, 0, 30, 30);
+	drawRect(rect);
+	GPoint p = getClick(e);
+	setColor("LIGHT_GRAY");
+	while(!rect.contains(p)){
+		fillOval(p.getX() - PEG_DIAM/2, p.getY() - PEG_DIAM/2, PEG_DIAM, PEG_DIAM);
+		pegs.add(p);
+		p = getClick(e);		
+	}
+}
+
+void inputObstacles(Vector<GPoint> & obst, GMouseEvent & e){
+	message("Click to set obstacles.");
+	GRectangle rect = GRectangle(0, 0, 30, 30);
+	drawRect(rect);
+	GPoint p = getClick(e);
+	setColor("ORANGE");
+	while(!rect.contains(p)){
+		fillOval(p.getX() - OBST_DIAM/2, p.getY() - OBST_DIAM/2, OBST_DIAM, OBST_DIAM);
+		obst.add(p);
+		p = getClick(e);		
+	}
+}
+
+void inputStart(GPoint & start, GMouseEvent & e){
+	message("Choose starting position.");
+	start = getClick(e);
+	setColor("GREEN");
+	fillOval(start.getX() - PEG_DIAM/2, start.getY() - PEG_DIAM/2, PEG_DIAM, PEG_DIAM);
+}
+
+void inputGoal(GPoint & goal, GMouseEvent & e){
+	message("Choose ending position");
+	goal = getClick(e);
+	setColor("RED");
+	fillOval(goal.getX() - PEG_DIAM/2, goal.getY() - PEG_DIAM/2, PEG_DIAM, PEG_DIAM);
+}
+
+void message(string str){
+	setColor("WHITE");
+	fillRect(getWindowWidth() - 200, getWindowHeight() - 20, 400, 50);
+	setColor("BLACK");
+	drawString(str, getWindowWidth() - 150, getWindowHeight() - 10);
+}
+
+GPoint getClick(GMouseEvent & e){
+	waitForClick(e);
+	return GPoint(e.getX(), e.getY());
+}
+
+string vecToString(Vector<GPoint> & pts){
+	string retval = "";
+	foreach(GPoint p in pts){
+		retval += realToString(p.getX()) + " " + realToString(p.getY()) + '\n';
+	}
+	return retval;
+}
